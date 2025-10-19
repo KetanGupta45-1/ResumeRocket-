@@ -1,0 +1,219 @@
+
+
+==============================
+📄 File: clean_text.py
+==============================
+import re
+
+def clean_text_list(text_list):
+    cleaned = []
+    for text in text_list:
+        if not isinstance(text, str) or not text.strip():
+            continue
+        text = re.sub(r'^[\-\*\•\u2022]\s*', '', text)
+        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'^[\-\*\•\u2022]\s*', '', text)
+        cleaned.append(text.strip())
+    return cleaned
+
+
+==============================
+📄 File: improve_sections.py
+==============================
+from Improvements.prompt import generate_resume_prompt
+from Improvements.parse_llm_output import parse_llm_output
+from langchain.schema import AIMessage
+
+def improve_sections_core(structured_sections, llm, section_map, role=None, debug=False):
+    """Core logic to improve resume sections using the LLM model."""
+    improved = {"projects": [], "workExperience": [], "achievements": []}
+
+    for section_key, items in structured_sections.items():
+        if debug:
+            print(f"🔹 Processing section: {section_key}")
+
+        for item in items:
+            title_key = "projectTitle" if section_key == "projects" else "title"
+            title = item.get(title_key, "")
+            descriptions = item.get("description", [])
+
+            if not descriptions:
+                improved[section_key].append({title_key: title, "description": []})
+                continue
+
+            prompt = generate_resume_prompt(title, descriptions, section_map[section_key], role=role)
+            response = llm.invoke(prompt)
+            raw_output = response.content if isinstance(response, AIMessage) else str(response)
+            improved_desc = parse_llm_output(raw_output)
+
+            improved[section_key].append({
+                title_key: title,
+                "description": improved_desc
+            })
+
+            if debug:
+                print(f"✅ Improved '{title}' ({len(improved_desc)} lines)")
+
+    if debug:
+        print("🎯 All sections improved successfully.")
+
+    return improved
+
+
+==============================
+📄 File: parse_llm_output.py
+==============================
+def parse(raw_output):
+    """
+    Parse raw LLM output text into a clean list of improved bullet points.
+    """
+
+    improved = []
+    for line in raw_output.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        if line[0].isdigit() and (". " in line or ") " in line):
+            line = line.split(". ", 1)[-1] if ". " in line else line.split(") ", 1)[-1]
+        improved.append(line)
+    return improved
+
+
+==============================
+📄 File: prompt.py
+==============================
+def generate_resume_prompt(title, descriptions, section_name, role=None):
+    """
+    Create a clean prompt for LLM to improve a resume entry.
+    """
+
+    role_text = f"for the role of {role}" if role else ""
+    desc_block = "\n".join(f"- {desc}" for desc in descriptions)
+
+    prompt = f"""
+    You are a professional resume editor. Improve the descriptions for the {section_name} entry titled "{title}" {role_text}.
+    Make them concise, official, and impactful with strong action verbs and quantifiable results.
+    IMPORTANT: Do not start lines with '-' in the new version.
+
+    Descriptions to improve:
+    {desc_block}
+
+    Return the improved descriptions as a list, each item separate. Do not add extra commentary.
+    """
+    return prompt
+
+
+==============================
+📄 File: Resume_Improvement.py
+==============================
+from Improvements.improve_sections import improve_sections_core
+from Model.initalise_model import initiate_model
+from Json_Extraction.proj_exp_ach_json import extract_section
+from Improvements.clean_text import clean_text_list
+from Improvements.prompt import generate_resume_prompt
+from Improvements.parse_llm_output import parse
+
+
+class ResumeImprovement:
+    def __init__(self, json_path, api_token, role=None, debug=False):
+        self.json_path = json_path
+        self.api_token = api_token
+        self.role = role
+        self.debug = debug
+        self.llm = None
+        self.section_map = {
+            "projects": "Projects",
+            "workExperience": "Work Experience",
+            "achievements": "Achievements"
+        }
+
+
+
+    def initialize_model(self):
+        """Initialize the LLM model using provided API token."""
+        try:
+            if self.debug:
+                print("🚀 Initializing LLM model...")
+            self.llm = initiate_model(self.api_token)
+            if self.debug:
+                print("✅ Model initialized successfully.")
+        except Exception as e:
+            raise RuntimeError(f"❌ Failed to initialize model: {e}")
+
+
+
+
+    def extract_sections(self):
+        """Extract structured resume sections (projects, experience, achievements)."""
+        try:
+            if self.debug:
+                print("📄 Extracting resume sections...")
+
+            self.structured_sections = extract_section(self.json_path)
+
+            if self.debug:
+                print("✅ Sections extracted successfsully.")
+            return self.structured_sections
+
+        except Exception as e:
+            raise RuntimeError(f"❌ Failed to extract sections: {e}")
+
+
+
+    def create_prompt(self, title, descriptions, section_name):
+        """Wrapper to generate an LLM prompt."""
+        try:
+            if self.debug:
+                print(f"📝 Creating LLM prompt for section: {section_name}, title: {title}")
+            return generate_resume_prompt(title, descriptions, section_name, self.role, self.debug)
+        except Exception as e:
+            raise RuntimeError(f"❌ Failed to create LLM prompt: {e}")
+        
+    
+    def parse_output(self, raw_output):
+        """Wrapper to parse LLM's output."""
+        try:
+            if self.debug:
+                print("🧩 Parsing LLM output text...")
+            return parse(raw_output, self.debug)
+        except Exception as e:
+            raise RuntimeError(f"❌ Failed to parse LLM output: {e}")
+
+
+    def clean_sections(self, structured_sections):
+        """Cleans the description text in each section."""
+        if self.debug:
+            print("🧹 Cleaning section descriptions...")
+        cleaned = {"projects": [], "workExperience": [], "achievements": []}
+
+        for section_key, items in structured_sections.items():
+            for item in items:
+                title_key = "projectTitle" if section_key == "projects" else "title"
+                raw_descriptions = item.get("description", [])
+                cleaned_desc = clean_text_list(raw_descriptions) if raw_descriptions else []
+                cleaned[section_key].append({
+                    title_key: item.get(title_key, ""),
+                    "description": cleaned_desc
+                })
+        if self.debug:
+            print("✅ Descriptions cleaned.")
+        return cleaned
+
+
+
+
+    def improve_sections(self, structured_sections):
+        """Improve resume sections using core function."""
+        try:
+            if not self.llm:
+                raise ValueError("Model not initialized. Run initialize_model() first.")
+            if self.debug:
+                print("🧠 Improving resume content with LLM...")
+            return improve_sections_core(structured_sections, self.llm, self.section_map, self.role, self.debug)
+        except Exception as e:
+            raise RuntimeError(f"❌ Failed to improve sections: {e}")
+
+
+==============================
+📄 File: __init__.py
+==============================

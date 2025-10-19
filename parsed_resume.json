@@ -1,0 +1,142 @@
+{
+  "Profile": {
+    "name": "KETAN GUPTA",
+    "email": "ketanguptait@gmail.com",
+    "phone_number": "+91 7067711850",
+    "country": "India",
+    "github": "https://github.com/KetanGupta45",
+    "linkedin": "https://www.linkedin.com/in/ketangupta41",
+    "summary": ""
+  },
+  "Education": [
+    {
+      "institution_name": "Indian Institute of Information Technology, Sonepat",
+      "degree": "B.Tech",
+      "field_of_study": "Information Technology",
+      "cgpa_or_percent": "8.44",
+      "start_date": "Aug 2022",
+      "end_date": "May 2026"
+    },
+    {
+      "institution_name": "India International Public School, Dabra",
+      "degree": "Higher Senior Secondary",
+      "field_of_study": "",
+      "cgpa_or_percent": "93%",
+      "start_date": "",
+      "end_date": "2022"
+    }
+  ],
+  "Work Experience": [
+    {
+      "company_name": "",
+      "job_title": "",
+      "location": "",
+      "start_date": "",
+      "end_date": "",
+      "descriptions": []
+    }
+  ],
+  "Projects": [
+    {
+      "project_name": "Online Fraudulent Transaction Detection (ML Classification)",
+      "tech_stack": "ML Classification",
+      "start_date": "Apr 2025",
+      "end_date": "",
+      "descriptions": [
+        "Analyzed 6.3M+ transactions, addressing class imbalance (80% non-fraud, 20% fraud).",
+        "Engineered features using VIF, PPS, mutual information; removed outliers with Isolation Forest.",
+        "Applied SMOTE; trained Random Forest, CatBoost, Voting, and Stacking models.",
+        "Achieved Precision: 99%, Recall: 88%, F1-score: 92%"
+      ]
+    },
+    {
+      "project_name": "Loksabha Elections 2024 Dashboard (Power BI/SQL)",
+      "tech_stack": "Power BI/SQL",
+      "start_date": "July 2025",
+      "end_date": "",
+      "descriptions": [
+        "Queried SQL Server schemas to extract KPIs from 543 constituencies.",
+        "Designed an interactive Power BI dashboard segmented by candidate, party, and region.",
+        "Enabled drill-through and filter analysis to uncover vote shares, win margins, and swing constituencies."
+      ]
+    },
+    {
+      "project_name": "Jigsaw Comment Classification Challenge (NLP/LLM)",
+      "tech_stack": "NLP/LLM",
+      "start_date": "Aug 2025",
+      "end_date": "Sep 2025",
+      "descriptions": [
+        "Tackled a highly imbalanced multi-label NLP task on 160K toxic comments across six categories.",
+        "Improved rare-class recall by 10% using focal loss, weighted sampling, and threshold tuning.",
+        "Progressed from traditional BiGRU (75%/73%) to fine tuning LLMs like DistilBERT (80%/80%) and RoBERTa (75%/85%) in precision/recall.",
+        "Deployed as an interactive Streamlit app with FastAPI backend."
+      ]
+    }
+  ],
+  "Achievements": [
+    {
+      "title": "Amazon ML Challenge",
+      "organization": "",
+      "date": "Sept 2024",
+      "description": "Developed a CNN + OCR pipeline to extract product attributes from noisy e-commerce images, processing over 1M images, and secured a Top 2,500 rank out of 20,000+ participants."
+    },
+    {
+      "title": "IPL Per Ball Prediction (Research-Based)",
+      "organization": "",
+      "date": "Apr 2025 – Oct 2025",
+      "description": "Completed and under review: Developed Deep Learning Architecture like Transformer models on 1,170 IPL matches with 30+ features in PyTorch, achieving 66.4% accuracy, 80.93 macro ROC AUC, and 46.43 macro PR AUC for next-ball prediction. Solved 350+ DSA Questions on LeetCode, Geek4Geeks."
+    }
+  ],
+  "Skills": [
+    {
+      "category": "Languages",
+      "skills": [
+        "Python",
+        "C++",
+        "SQL"
+      ]
+    },
+    {
+      "category": "ML & AI",
+      "skills": [
+        "Scikit-learn",
+        "PyTorch",
+        "Transformers",
+        "NLP",
+        "Generative AI",
+        "Langchain"
+      ]
+    },
+    {
+      "category": "Tools & Frameworks",
+      "skills": [
+        "Power BI",
+        "Docker",
+        "Git",
+        "GitHub",
+        "Jupyter",
+        "Google Colab",
+        "FastAPI"
+      ]
+    },
+    {
+      "category": "Soft Skills",
+      "skills": [
+        "Communication",
+        "Presentation",
+        "Leadership",
+        "Problem Solving"
+      ]
+    },
+    {
+      "category": "Core Concepts",
+      "skills": [
+        "Data Structure",
+        "Operating System",
+        "Computer Network",
+        "OOP",
+        "Database Management System"
+      ]
+    }
+  ]
+}

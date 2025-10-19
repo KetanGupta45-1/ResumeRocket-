@@ -1,0 +1,915 @@
+
+
+==============================
+📄 File: aggregate_score.py
+==============================
+def compute_aggregate_score(semantic_results, job_skills, threshold=0.75):
+    """
+    Compute an ATS-style score for how well job_skills are covered by semantic_results.
+
+    - semantic_results: list of tuples (resume_skill, job_skill, score) where score in [0,1]
+    - job_skills: list of job skill names (strings)
+    - threshold: minimum similarity to count as a valid match (default 0.75)
+
+    Returns:
+        float: ATS score as percentage (0.0 - 100.0), rounded to 2 decimals.
+    """
+    if not semantic_results or not job_skills:
+        return 0.0
+
+    best_scores = {js: 0.0 for js in job_skills}
+    for resume_skill, job_skill, score in semantic_results:
+        if job_skill in best_scores and score > best_scores[job_skill]:
+            best_scores[job_skill] = score
+
+    avg_score = sum(best_scores.values()) / len(job_skills)
+    ats_percentage = avg_score * 100.0
+    return round(ats_percentage, 2)
+
+
+==============================
+📄 File: build_embeddings.py
+==============================
+from Matching.embed_text import encode_texts
+from Matching.save_embedding import save_embeddings
+from Matching.load_embedding import load_embeddings
+
+def build_embeddings(targets, model_name, cache_path, batch_size, device):
+    """
+    Build (or load) embeddings for targets. Uses cache only if cached targets exactly match
+    the requested targets list.
+
+    Returns: (targets_list, embeddings_tensor_on_device)
+    """
+
+    loaded_targets, loaded_embs = load_embeddings(cache_path, device)
+    if loaded_embs is not None and loaded_targets == targets:
+        return loaded_targets, loaded_embs
+
+    targets_unique = list(dict.fromkeys(targets))
+    embeddings = encode_texts(model_name, targets_unique, batch_size, device)
+    save_embeddings(cache_path, targets_unique, embeddings)
+    return targets_unique, embeddings.to(device)
+
+
+==============================
+📄 File: calculate_skill_match.py
+==============================
+from Matching.config import CONFIDENCE_THRESHOLD
+
+def calculate_skill_match(semantic_results, resume_skills, job_skills, threshold=None):
+    """
+    Calculate weighted skill match percentage based on semantic similarity.
+
+    - semantic_results: list of tuples (resume_skill, job_skill, score)
+    - resume_skills: list of resume skill strings
+    - job_skills: list of job skill strings
+    - threshold: optional threshold (float). If None, uses CONFIDENCE_THRESHOLD from config.
+
+    Returns:
+        dict {
+            "match_percentage": float (0-100),
+            "matched_skills": list of (resume_skill, job_skill, score) that met threshold,
+            "matched_job_skills": list of job skills matched,
+            "matched_resume_skills": list of resume skills matched
+        }
+    """
+    if threshold is None:
+        threshold = CONFIDENCE_THRESHOLD
+
+    if not job_skills:
+        return {"match_percentage": 0.0, "matched_skills": [], "matched_job_skills": [], "matched_resume_skills": []}
+    if not resume_skills:
+        return {"match_percentage": 0.0, "matched_skills": [], "matched_job_skills": [], "matched_resume_skills": []}
+
+    matched = [(a, b, s) for a, b, s in semantic_results if s >= threshold]
+
+    matched_job_set = set(b for _, b, _ in matched)
+    matched_resume_set = set(a for a, _, _ in matched)
+
+    job_covered = len(matched_job_set) / len(job_skills) if job_skills else 0.0
+    resume_covered = len(matched_resume_set) / len(resume_skills) if resume_skills else 0.0
+
+    # Weighted: prioritize covering job skills (70%) and then resume breadth (30%)
+    weighted_score = (0.7 * job_covered + 0.3 * resume_covered) * 100.0
+
+    return {
+        "match_percentage": round(weighted_score, 2),
+        "matched_skills": matched,
+        "matched_job_skills": list(matched_job_set),
+        "matched_resume_skills": list(matched_resume_set),
+        "threshold_used": threshold
+    }
+
+
+==============================
+📄 File: compute_similarity.py
+==============================
+from sentence_transformers import util
+import torch
+
+def compute_similarity(user_embs, target_embs, user_texts, target_texts):
+    results = []
+    for i, u_emb in enumerate(user_embs):
+        scores = util.cos_sim(u_emb, target_embs)[0]
+        best_score, best_idx = torch.max(scores, dim=0)
+        results.append((user_texts[i], target_texts[int(best_idx.item())], float(best_score.item())))
+    return results
+
+
+==============================
+📄 File: config.py
+==============================
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+CONFIDENCE_THRESHOLD = 0.75
+EMBEDDING_BATCH_SIZE = 64
+EMBEDDING_CACHE_PATH = "skill_embeddings.pt"
+
+
+==============================
+📄 File: embed_text.py
+==============================
+from sentence_transformers import SentenceTransformer
+import torch
+
+def encode_texts(model_name, texts, batch_size, device):
+    model = SentenceTransformer(model_name)
+    all_embs = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        embs = model.encode(batch, convert_to_tensor=True, device=device)
+        all_embs.append(embs)
+    return torch.cat(all_embs, dim=0) if all_embs else torch.empty(0)
+
+
+==============================
+📄 File: expand_skill.py
+==============================
+import re
+
+def expand_compound_skill(skill):
+    skill = skill.strip()
+    if '&' in skill or ' and ' in skill:
+        parts = re.split(r'&| and ', skill)
+        return [p.strip() for p in parts if p.strip()]
+    if '/' in skill:
+        parts = skill.split('/')
+        return [p.strip() for p in parts if p.strip()]
+    return [skill]
+
+
+==============================
+📄 File: extract_job_skill.py
+==============================
+from langchain.prompts import PromptTemplate
+from Model.initalise_model import initiate_model
+import json
+import re
+
+def extract_job_skills(job_description, token=None):
+    if not job_description:
+        return []
+
+    chat_model = initiate_model(token)
+    prompt_template = PromptTemplate.from_template("""
+    Extract only the skills mentioned in the following job description (JD).
+    Include both technical skills (e.g., programming languages, tools, frameworks) and soft skills (e.g., communication, problem-solving, teamwork).
+    Output should be a clean list of skill names only — no explanations, comments, or additional text.
+    Do not include generic sentences like “note” or “I have extracted…” etc.
+    Example output format:
+    ["Python", "JavaScript", "React", "Problem Solving", "Communication"]
+
+    Job Description:
+    {job_description}
+""")
+    formatted = prompt_template.format(job_description=job_description)
+    try:
+        response = chat_model.invoke(formatted)
+        text = response.content.strip()
+        text = text.replace('*', '').replace('-', '').replace('•', '')
+
+        try:
+            arr = json.loads(text)
+        except Exception:
+            arr = []
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                line = re.sub(r'^\d+\.\s*', '', line)
+                line = re.sub(r'[^\w\s\-\&\+]', '', line).strip()
+                if line:
+                    arr.append(line.lower())
+
+        arr = list(dict.fromkeys([a.lower().strip() for a in arr if a and isinstance(a, str)]))
+        print(f"extracted skills from jd: {arr}")
+        return arr
+    except Exception as e:
+        print(f"error extracting from jd: {e}")
+        return []
+
+
+==============================
+📄 File: hybrid_match.py
+==============================
+from Matching.semantic_skill_matcher import semantic_skill_matcher
+
+def hybrid_match(user_skills, job_skills, model_name, cache_path, batch_size):
+    return semantic_skill_matcher(user_skills, job_skills, model_name, cache_path, batch_size)
+
+
+==============================
+📄 File: load_embedding.py
+==============================
+import os
+import torch
+
+def load_embeddings(cache_path, device):
+    if os.path.exists(cache_path):
+        try:
+            data = torch.load(cache_path)
+            return data['targets'], data['embeddings'].to(device)
+        except Exception:
+            return None, None
+    return None, None
+
+
+==============================
+📄 File: normalize_text.py
+==============================
+import re
+
+def normalize_skill_text(skill):
+    s = skill.lower().strip()
+    s = s.replace('&', ' and ')
+    s = re.sub(r'[\u2018\u2019\u201c\u201d]', '', s)
+    s = re.sub(r'[^a-z0-9\s\.\+\-]', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    s = s.replace('  ', ' ')
+    return s
+
+
+==============================
+📄 File: save_embedding.py
+==============================
+import torch
+
+def save_embeddings(cache_path, targets, embeddings):
+    try:
+        torch.save({'targets': targets, 'embeddings': embeddings.cpu()}, cache_path)
+    except Exception:
+        pass
+
+
+==============================
+📄 File: semantic_skill_matcher.py
+==============================
+from sentence_transformers import SentenceTransformer
+from Matching.build_embeddings import build_embeddings
+from Matching.compute_similarity import compute_similarity
+
+def semantic_skill_matcher(user_skill_texts, target_skill_texts, model_name, cache_path, batch_size):
+    """
+    Returns: list of tuples (user_skill, matched_target_skill, similarity_score)
+    """
+    model = SentenceTransformer(model_name)
+    device = model.device
+    targets, target_embs = build_embeddings(target_skill_texts, model_name, cache_path, batch_size, device)
+    user_embs = model.encode(user_skill_texts, convert_to_tensor=True, device=device)
+    return compute_similarity(user_embs, target_embs, user_skill_texts, targets)
+
+
+==============================
+📄 File: SkillMatcher.py
+==============================
+import os
+from Matching.config import EMBEDDING_MODEL, EMBEDDING_CACHE_PATH, EMBEDDING_BATCH_SIZE, CONFIDENCE_THRESHOLD
+from Matching.semantic_skill_matcher import semantic_skill_matcher
+from Matching.extract_job_skill import extract_job_skills
+from Matching.calculate_skill_match import calculate_skill_match
+from Matching.aggregate_score import compute_aggregate_score
+from Json_Extraction.skills_json import extract_skills
+from Matching.skill_inference import expand_skills_with_inference
+
+class SkillMatcher:
+    def __init__(self, resume_json_path, job_description, token, use_skill_inference = True):
+        self.resume_json_path = resume_json_path
+        self.job_description = job_description
+        self.token = token
+        self.model_name = EMBEDDING_MODEL
+        self.cache_path = EMBEDDING_CACHE_PATH
+        self.batch_size = EMBEDDING_BATCH_SIZE
+        self.confidence_threshold = CONFIDENCE_THRESHOLD
+        self.use_skill_inference = use_skill_inference
+        self.resume_skills = []
+        self.job_skills = []
+        self.semantic_results = []
+        self.final_skills_for_matching = []
+        self.inferred_skills = [] 
+        self.final_results = None
+        self.project_data = []
+        self.ats_score = 0.0
+
+    def extract_resume_data(self):
+        if os.path.exists(self.resume_json_path):
+            self.resume_skills = extract_skills(self.resume_json_path)
+        else:
+            self.resume_skills = []
+            self.project_data = []
+
+    def extract_job_data(self):
+        self.job_skills = extract_job_skills(self.job_description, self.token)
+
+    def expand_skills_with_inference(self):
+        """Use the imported function for skill inference"""
+        self.final_skills_for_matching, self.inferred_skills = expand_skills_with_inference(
+            self.resume_skills, 
+            self.use_skill_inference
+        )
+
+    def run_semantic_matching(self):
+        if not self.resume_skills or not self.job_skills:
+            self.semantic_results = []
+        else:
+            self.semantic_results = semantic_skill_matcher(
+                user_skill_texts=self.resume_skills,
+                target_skill_texts=self.job_skills,
+                model_name=self.model_name,
+                cache_path=self.cache_path,
+                batch_size=self.batch_size
+            )
+
+    def compute_final_results(self):
+        self.final_results = calculate_skill_match(
+            self.semantic_results,
+            self.final_skills_for_matching,
+            self.job_skills,
+            threshold=self.confidence_threshold
+        )
+
+        self.ats_score = compute_aggregate_score(
+            self.semantic_results, 
+            self.job_skills, 
+            threshold=self.confidence_threshold
+        )
+
+    def run_pipeline(self):
+        """
+        Runs the full pipeline and returns a structured result dict.
+        """
+        self.extract_resume_data()
+        self.extract_job_data()
+        self.expand_skills_with_inference()
+        self.run_semantic_matching()
+        self.compute_final_results()
+
+        # Build unmatched lists
+        matched_job_set = set(self.final_results.get("matched_job_skills", []))
+        matched_resume_set = set(self.final_results.get("matched_resume_skills", []))
+        
+        # For unmatched resume skills, only show original ones that weren't matched
+        original_resume_set = set(self.resume_skills)
+        matched_original_resume = matched_resume_set & original_resume_set
+
+        unmatched_job_skills = [j for j in self.job_skills if j not in matched_job_set]
+        unmatched_resume_skills = [r for r in self.resume_skills if r not in matched_original_resume]
+
+        helpful_inferred_skills = []
+        for match in self.final_results.get("matched_skills", []):
+            resume_skill, job_skill, score = match
+            if resume_skill in self.inferred_skills:
+                helpful_inferred_skills.append({
+                    'inferred_skill': resume_skill,
+                    'matched_job_skill': job_skill,
+                    'score': score
+                })
+
+        results = {
+            # Original data
+            "resume_skills": self.resume_skills,
+            "job_skills": self.job_skills,
+            
+            # Inference data
+            "inferred_skills": self.inferred_skills,
+            "final_skills_for_matching": self.final_skills_for_matching,
+            "helpful_inferred_skills": helpful_inferred_skills,
+            
+            # Matching results
+            "semantic_results": self.semantic_results,
+            "matched_pairs": self.final_results.get("matched_skills", []),
+            "matched_job_skills": self.final_results.get("matched_job_skills", []),
+            "matched_resume_skills": self.final_results.get("matched_resume_skills", []),
+            "unmatched_job_skills": unmatched_job_skills,
+            "unmatched_resume_skills": unmatched_resume_skills,
+            
+            # Scores
+            "final_results": {
+                "match_percentage": self.final_results.get("match_percentage", 0.0),
+                "threshold_used": self.final_results.get("threshold_used", self.confidence_threshold),
+            },
+            "project_data": self.project_data,
+            "ATS_Score": self.ats_score,
+            "skill_inference_enabled": self.use_skill_inference
+        }
+
+        return results
+
+
+==============================
+📄 File: skill_inference.py
+==============================
+def expand_skills_with_inference(resume_skills, use_skill_inference=True):
+    """
+    Simple skill inference: resume_skills + inferred_skills
+    Args:
+        resume_skills: List of original resume skills
+        use_skill_inference: Boolean to enable/disable inference
+    
+    Returns:
+        tuple: (final_skills_for_matching, inferred_skills)
+    """
+    
+    if not use_skill_inference or not resume_skills:
+        return resume_skills.copy(), []
+    
+    from Matching.skill_inference_map import skill_inference_map
+    inferred_skills_set = set()
+    
+    for skill in resume_skills:
+        normalized_skill = skill.lower().strip()
+        if normalized_skill in skill_inference_map:
+            inferred_skills = skill_inference_map[normalized_skill]
+            inferred_skills_set.update(inferred_skills)
+    
+    inferred_skills_list = list(inferred_skills_set - set(resume_skills))
+    
+    final_skills_for_matching = list(set(resume_skills + inferred_skills_list))
+    
+    return final_skills_for_matching, inferred_skills_list
+
+
+==============================
+📄 File: skill_inference_map.py
+==============================
+skill_inference_map = {
+    # AI/ML Domain
+    'machine learning': [
+        'data analysis',
+        'exploratory data analysis',
+        'data visualization',
+        'feature engineering',
+        'data preprocessing',
+        'statistics',
+        'python',
+        'pandas',
+        'numpy',
+        'model evaluation',
+        'cross validation'
+    ],
+    'deep learning': [
+        'machine learning',
+        'neural networks',
+        'pytorch',
+        'tensorflow',
+        'keras',
+        'gradient descent',
+        'backpropagation'
+    ],
+    'natural language processing': [
+        'machine learning',
+        'text processing',
+        'tokenization',
+        'text classification',
+        'sentiment analysis'
+    ],
+    'computer vision': [
+        'deep learning',
+        'image processing',
+        'opencv',
+        'convolutional neural networks',
+        'object detection'
+    ],
+    
+    # Data Science
+    'data analysis': [
+        'data visualization',
+        'statistics',
+        'eda',
+        'python',
+        'pandas',
+        'data cleaning',
+        'data wrangling'
+    ],
+    'data science': [
+        'machine learning',
+        'data analysis',
+        'statistics',
+        'python',
+        'data visualization',
+        'big data'
+    ],
+    'statistics': [
+        'probability',
+        'data analysis',
+        'hypothesis testing',
+        'regression analysis'
+    ],
+    'data visualization': [
+        'eda',
+        'storytelling',
+        'matplotlib',
+        'seaborn',
+        'plotly'
+    ],
+    'big data': [
+        'distributed computing',
+        'data processing',
+        'apache spark',
+        'hadoop'
+    ],
+    
+    # Software Development
+    'full stack development': [
+        'frontend development',
+        'backend development',
+        'database management',
+        'api development',
+        'version control'
+    ],
+    'backend development': [
+        'api development',
+        'database management',
+        'server management',
+        'authentication',
+        'rest api'
+    ],
+    'frontend development': [
+        'html',
+        'css',
+        'javascript',
+        'responsive design',
+        'ui/ux principles'
+    ],
+    'devops': [
+        'ci/cd',
+        'docker',
+        'kubernetes',
+        'cloud computing',
+        'infrastructure as code',
+        'monitoring'
+    ],
+    'cloud computing': [
+        'aws',
+        'azure',
+        'google cloud',
+        'server management',
+        'scalability'
+    ],
+    
+    # Web Development Frameworks
+    'react': [
+        'javascript',
+        'html',
+        'css',
+        'frontend development',
+        'component based architecture'
+    ],
+    'node.js': [
+        'javascript',
+        'backend development',
+        'api development',
+        'npm'
+    ],
+    'django': [
+        'python',
+        'backend development',
+        'mvc architecture',
+        'orm'
+    ],
+    'spring boot': [
+        'java',
+        'backend development',
+        'dependency injection',
+        'rest api'
+    ],
+    
+    # Database Skills
+    'sql': [
+        'database management',
+        'data modeling',
+        'query optimization',
+        'relational databases'
+    ],
+    'nosql': [
+        'database management',
+        'distributed systems',
+        'scalability',
+        'data modeling'
+    ],
+    'database administration': [
+        'sql',
+        'performance tuning',
+        'backup recovery',
+        'security'
+    ],
+    
+    # Mobile Development
+    'mobile development': [
+        'ui/ux design',
+        'api integration',
+        'performance optimization',
+        'cross platform development'
+    ],
+    'react native': [
+        'react',
+        'javascript',
+        'mobile development',
+        'cross platform development'
+    ],
+    'flutter': [
+        'dart',
+        'mobile development',
+        'cross platform development',
+        'ui development'
+    ],
+    
+    # DevOps & Infrastructure
+    'docker': [
+        'containerization',
+        'devops',
+        'continuous deployment',
+        'microservices'
+    ],
+    'kubernetes': [
+        'docker',
+        'container orchestration',
+        'devops',
+        'scalability',
+        'microservices'
+    ],
+    'ci/cd': [
+        'jenkins',
+        'gitlab ci',
+        'github actions',
+        'automated testing',
+        'devops'
+    ],
+    'terraform': [
+        'infrastructure as code',
+        'cloud computing',
+        'devops',
+        'automation'
+    ],
+    
+    # Testing
+    'test automation': [
+        'unit testing',
+        'integration testing',
+        'python',
+        'java',
+        'javascript'
+    ],
+    'quality assurance': [
+        'testing',
+        'test cases',
+        'bug tracking',
+        'regression testing'
+    ],
+    
+    # Project Management
+    'agile methodology': [
+        'scrum',
+        'kanban',
+        'sprint planning',
+        'project management'
+    ],
+    'project management': [
+        'leadership',
+        'communication',
+        'risk management',
+        'stakeholder management'
+    ],
+    
+    # Soft Skills
+    'team leadership': [
+        'team management',
+        'communication',
+        'project management',
+        'mentoring'
+    ],
+    'problem solving': [
+        'analytical thinking',
+        'critical thinking',
+        'creativity',
+        'decision making'
+    ],
+    'communication skills': [
+        'verbal communication',
+        'written communication',
+        'presentation skills',
+        'stakeholder management'
+    ],
+    
+    # Security
+    'cybersecurity': [
+        'network security',
+        'information security',
+        'risk assessment',
+        'security protocols'
+    ],
+    'application security': [
+        'secure coding',
+        'owasp',
+        'authentication',
+        'authorization'
+    ],
+    
+    # Business & Analytics
+    'business intelligence': [
+        'data analysis',
+        'data visualization',
+        'reporting',
+        'sql'
+    ],
+    'product management': [
+        'market research',
+        'user stories',
+        'agile methodology',
+        'stakeholder management'
+    ],
+    
+    # Specialized Domains
+    'iot development': [
+        'embedded systems',
+        'python',
+        'cloud computing',
+        'data processing'
+    ],
+    'blockchain development': [
+        'smart contracts',
+        'cryptography',
+        'distributed systems',
+        'web3'
+    ],
+    'game development': [
+        'c++',
+        'unity',
+        '3d modeling',
+        'physics engines'
+    ]
+}
+
+
+==============================
+📄 File: skill_mapping.py
+==============================
+skill_mapping = {
+    # Programming Languages
+    'javascript': 'javascript', 'js': 'javascript', 'typescript': 'typescript', 'ts': 'typescript',
+    'python': 'python', 'py': 'python', 'java': 'java', 'c++': 'cpp', 'cpp': 'cpp', 'cplusplus': 'cpp',
+    'c#': 'csharp', 'csharp': 'csharp', 'go': 'golang', 'golang': 'golang', 'rust': 'rust',
+    'kotlin': 'kotlin', 'swift': 'swift', 'php': 'php', 'ruby': 'ruby', 'scala': 'scala',
+    'r': 'r', 'matlab': 'matlab', 'perl': 'perl', 'haskell': 'haskell',
+
+    # Web Frameworks - Frontend
+    'react.js': 'react', 'reactjs': 'react', 'react': 'react', 'vue.js': 'vue', 'vuejs': 'vue',
+    'vue': 'vue', 'angular': 'angular', 'angular.js': 'angular', 'angularjs': 'angular',
+    'svelte': 'svelte', 'next.js': 'next', 'nextjs': 'next', 'next': 'next', 'nuxt.js': 'nuxt',
+    'nuxtjs': 'nuxt', 'nuxt': 'nuxt', 'gatsby': 'gatsby',
+
+    # Web Frameworks - Backend
+    'node.js': 'node', 'nodejs': 'node', 'node': 'node', 'express.js': 'express', 'expressjs': 'express',
+    'express': 'express', 'django': 'django', 'django framework': 'django', 'flask': 'flask',
+    'fastapi': 'fastapi', 'spring': 'spring', 'spring boot': 'spring', 'spring framework': 'spring',
+    'laravel': 'laravel', 'ruby on rails': 'rails', 'rails': 'rails', 'asp.net': 'aspnet', 'aspnet': 'aspnet',
+
+    # Mobile Frameworks
+    'react native': 'react native', 'react-native': 'react native', 'flutter': 'flutter',
+    'ionic': 'ionic', 'xamarin': 'xamarin',
+
+    # CSS Frameworks & Styling
+    'tailwind css': 'tailwind', 'tailwind': 'tailwind', 'bootstrap': 'bootstrap',
+    'material-ui': 'material ui', 'material ui': 'material ui', 'mui': 'material ui',
+    'sass': 'sass', 'scss': 'sass', 'less': 'less', 'styled components': 'styled components',
+    'styled-components': 'styled components', 'css': 'css', 'css3': 'css', 'html': 'html', 'html5': 'html',
+
+    # Databases
+    'postgresql': 'sql', 'postgres': 'sql', 'mysql': 'sql', 'mariadb': 'sql', 'sql server': 'sql',
+    'microsoft sql server': 'sql', 'oracle': 'sql', 'sqlite': 'sql', 'mongodb': 'nosql',
+    'cassandra': 'nosql', 'redis': 'nosql', 'elasticsearch': 'nosql', 'dynamodb': 'nosql',
+    'firebase': 'nosql', 'firestore': 'nosql',
+
+    # Cloud Platforms
+    'aws': 'cloud', 'amazon web services': 'cloud', 'azure': 'cloud', 'microsoft azure': 'cloud',
+    'google cloud': 'cloud', 'gcp': 'cloud', 'google cloud platform': 'cloud', 'ibm cloud': 'cloud',
+    'oracle cloud': 'cloud', 'digital ocean': 'cloud', 'digitalocean': 'cloud', 'heroku': 'cloud',
+
+    # Cloud Services
+    'aws ec2': 'cloud computing', 'aws lambda': 'serverless', 'lambda': 'serverless',
+    'azure functions': 'serverless', 'google cloud functions': 'serverless', 'docker': 'containerization',
+    'kubernetes': 'containerization', 'k8s': 'containerization', 'terraform': 'iac',
+    'infrastructure as code': 'iac', 'cloudformation': 'iac',
+    
+    # DevOps & Tools
+    'git': 'version control', 'github': 'version control', 'gitlab': 'version control',
+    'bitbucket': 'version control', 'jenkins': 'ci/cd', 'ci/cd': 'ci/cd', 'continuous integration': 'ci/cd',
+    'continuous deployment': 'ci/cd', 'github actions': 'ci/cd', 'gitlab ci': 'ci/cd',
+    'circleci': 'ci/cd', 'travis ci': 'ci/cd',
+
+    # API & Web Services
+    'rest api': 'api', 'restful api': 'api', 'rest': 'api', 'graphql': 'api', 'soap': 'api',
+    'api development': 'api', 'web services': 'api', 'microservices': 'microservices',
+    'microservice architecture': 'microservices',
+
+    # Testing
+    'jest': 'testing', 'mocha': 'testing', 'chai': 'testing', 'cypress': 'testing', 'selenium': 'testing',
+    'junit': 'testing', 'pytest': 'testing', 'unit testing': 'testing', 'integration testing': 'testing',
+    'test automation': 'testing',
+
+    # Methodologies & Processes
+    'agile': 'agile', 'agile methodology': 'agile', 'agile development': 'agile', 'scrum': 'agile',
+    'kanban': 'agile', 'waterfall': 'waterfall', 'devops': 'devops', 'devsecops': 'devops',
+
+    # AI/ML
+    'machine learning': 'machine learning', 'ml': 'machine learning', 'deep learning': 'deep learning',
+    'neural networks': 'deep learning', 'natural language processing': 'nlp', 'nlp': 'nlp',
+    'computer vision': 'computer vision', 'tensorflow': 'tensorflow', 'pytorch': 'pytorch',
+    'keras': 'keras', 'scikit-learn': 'scikit learn', 'scikit learn': 'scikit learn',
+
+    # Data Science
+    'data analysis': 'data analysis', 'data visualization': 'data visualization', 'tableau': 'data visualization',
+    'power bi': 'data visualization', 'pandas': 'pandas', 'numpy': 'numpy', 'jupyter': 'jupyter',
+
+    # Mobile Development
+    'android development': 'android', 'ios development': 'ios', 'mobile development': 'mobile',
+    'swiftui': 'ios', 'jetpack compose': 'android',
+
+    # Desktop Development
+    'electron': 'electron', 'qt': 'qt', 'wxwidgets': 'gui',
+
+    # Game Development
+    'unity': 'unity', 'unreal engine': 'unreal', 'game development': 'game dev',
+
+    # Security
+    'cybersecurity': 'security', 'information security': 'security', 'network security': 'security',
+    'application security': 'security', 'penetration testing': 'security', 'ethical hacking': 'security',
+    'cryptography': 'security',
+
+    # Networking
+    'tcp/ip': 'networking', 'http': 'networking', 'https': 'networking', 'dns': 'networking',
+    'ssl': 'networking', 'tls': 'networking', 'cdn': 'networking',
+
+    # Operating Systems
+    'linux': 'linux', 'unix': 'linux', 'windows': 'windows', 'macos': 'macos', 'ubuntu': 'linux',
+    'centos': 'linux', 'red hat': 'linux',
+
+    # Soft Skills
+    'communication': 'communication', 'communication skills': 'communication', 'verbal communication': 'communication',
+    'written communication': 'communication', 'teamwork': 'teamwork', 'collaboration': 'teamwork',
+    'leadership': 'leadership', 'project management': 'project management', 'time management': 'time management',
+    'problem solving': 'problem solving', 'critical thinking': 'critical thinking', 'creativity': 'creativity',
+    'adaptability': 'adaptability', 'attention to detail': 'attention to detail',
+
+    # Business Skills
+    'product management': 'product management', 'business analysis': 'business analysis',
+    'stakeholder management': 'stakeholder management', 'requirements gathering': 'requirements gathering',
+    'user stories': 'user stories',
+    
+    # Design
+    'ui design': 'ui/ux', 'ux design': 'ui/ux', 'user interface': 'ui/ux', 'user experience': 'ui/ux',
+    'figma': 'ui/ux', 'adobe xd': 'ui/ux', 'sketch': 'ui/ux', 'wireframing': 'ui/ux', 'prototyping': 'ui/ux',
+
+    # Content Management
+    'wordpress': 'cms', 'contentful': 'cms', 'sanity': 'cms', 'strapi': 'cms',
+
+    # E-commerce
+    'shopify': 'ecommerce', 'woocommerce': 'ecommerce', 'magento': 'ecommerce',
+
+    # Monitoring & Analytics
+    'grafana': 'monitoring', 'prometheus': 'monitoring', 'splunk': 'monitoring', 'datadog': 'monitoring',
+    'google analytics': 'analytics',
+
+    # Message Brokers
+    'kafka': 'message broker', 'rabbitmq': 'message broker', 'activemq': 'message broker',
+
+    # Version Control Advanced
+    'git flow': 'git workflow', 'git branching': 'git workflow', 'merge conflicts': 'git workflow',
+
+    # Documentation
+    'technical writing': 'documentation', 'documentation': 'documentation', 'api documentation': 'documentation',
+
+    # Performance
+    'performance optimization': 'performance', 'code optimization': 'performance', 'load testing': 'performance',
+
+    # Architecture
+    'system design': 'system design', 'software architecture': 'software architecture',
+    'design patterns': 'design patterns', 'clean architecture': 'software architecture',
+
+    # Quality Assurance
+    'qa': 'quality assurance', 'quality assurance': 'quality assurance', 'software testing': 'quality assurance',
+}
+
+
+==============================
+📄 File: __init__.py
+==============================
