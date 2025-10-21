@@ -1,234 +1,139 @@
-💼 Resume Analysis & ATS Matching System
+# 🧠 AI Resume Analyzer & ATS Scoring System
 
-A comprehensive AI-powered system for resume parsing, skill matching, and ATS (Applicant Tracking System) optimization.
+This project is an **AI-powered Resume Analyzer** that evaluates resumes against job descriptions, provides **semantic skill matching**, and calculates an **ATS (Applicant Tracking System) score**. It leverages **Natural Language Processing (NLP)** and **semantic similarity models** to analyze candidate profiles and recommend improvements.
 
-🧾 Overview
+---
 
-This system provides end-to-end resume analysis with the following capabilities:
+## 🚀 Features
 
-Resume Parsing: Extract structured information from PDF resumes
+- 📄 **Resume Parsing:** Automatically extracts text, skills, and experience from PDF or DOCX resumes.  
+- 🧩 **Semantic Skill Matching:** Uses sentence embeddings to compare job requirements with candidate skills.  
+- 📊 **ATS Score Calculation:** Computes a weighted score based on keyword and semantic similarity.  
+- 💡 **AI-Based Suggestions:** Provides tailored recommendations to enhance resume relevance and ATS compatibility.  
+- 🌐 **FastAPI Backend:** RESTful API endpoints for parsing, scoring, and serving AI results.  
+- 🧱 **Modular Design:** Each module (parser, scorer, suggestion engine) is independent for easy integration.
 
-Skill Matching: Perform semantic matching between resume skills and job requirements
+---
 
-ATS Scoring: Calculate compatibility scores for job applications
+## 🧩 Project Structure
 
-Resume Improvement: Get AI-powered suggestions for enhancing resume sections
+📂 ai_resume_analyzer/
+├── aggregate_score.py # Calculates final ATS score based on job skill match
+├── parser.py # Extracts and cleans resume text
+├── skill_extractor.py # Identifies skills from resume using NLP models
+├── semantic_matcher.py # Computes semantic similarity between job & resume skills
+├── improvement_suggester.py # Generates improvement recommendations
+├── main.py # FastAPI endpoints (core API)
+├── requirements.txt # All required dependencies
+└── README.md # This documentation
 
-Skill Inference: Automatically expand related skills based on existing ones
+markdown
+Copy code
 
-🏗️ Architecture Overview
-graph TB
-    A[📄 Resume PDF] --> B[🔍 Parser Module]
-    B --> C[📊 Structured JSON Data]
-    
-    D[📋 Job Description] --> E[🎯 Skill Extractor]
-    E --> F[🔧 Job Skills]
-    
-    C --> G[🧠 Skill Matcher]
-    F --> G
-    
-    G --> H[⚡ Semantic Matching]
-    H --> I[💡 Skill Inference]
-    I --> J[📈 ATS Scoring]
-    
-    J --> K[✨ Improvement Engine]
-    K --> L[🎊 Final Report]
-    
-    M[⚙️ Config] --> G
-    M --> H
-    M --> J
-    
-    N[💾 Embedding Cache] --> H
-    
-    subgraph "Core Processing Pipeline"
-        B --> G --> J --> L
-    end
-    
-    subgraph "AI Components"
-        H --> I
-    end
+---
 
-🧩 Architecture Components
-Layer	Component	Purpose
-📥 Input	Resume PDF, Job Description	Raw data ingestion
-🔍 Processing	Parser, Skill Extractor, Semantic Matcher	Data extraction & analysis
-🧠 Intelligence	Skill Inference, Embedding Models	AI-powered insights
-📊 Scoring	ATS Engine, Match Calculator	Compatibility assessment
-✨ Enhancement	Improvement Engine	Optimization suggestions
-🎯 Output	Final Report, Scores, Recommendations	Actionable insights
-📂 Project Structure
-project/
-├── 📁 Matching/                    # Core matching functionality
-│   ├── SkillMatcher.py             # Main matching pipeline
-│   ├── semantic_skill_matcher.py   # Semantic similarity matching
-│   ├── skill_inference.py          # Skill expansion logic
-│   ├── skill_inference_map.py      # Skill relationship mappings
-│   ├── calculate_skill_match.py    # Match percentage calculation
-│   ├── aggregate_score.py          # ATS scoring algorithm
-│   ├── build_embeddings.py         # Embedding generation/caching
-│   ├── compute_similarity.py       # Cosine similarity computation
-│   ├── config.py                   # Configuration settings
-│   ├── embed_text.py               # Text embedding utilities
-│   ├── expand_skill.py             # Compound skill expansion
-│   ├── extract_job_skill.py        # Job description skill extraction
-│   ├── hybrid_match.py             # Hybrid matching strategies
-│   ├── load_embedding.py           # Embedding loading utilities
-│   ├── normalize_text.py           # Text normalization
-│   ├── save_embedding.py           # Embedding saving utilities
-│   └── skill_mapping.py            # Skill normalization mappings
-│
-├── 📁 Model/
-│   └── initialise_model.py         # LLM model initialization
-│
-├── 📁 Parser/
-│   ├── ResumeParser.py             # Main resume parsing class
-│   ├── fix_json.py                 # JSON repair utilities
-│   └── resume_text_extract.py      # PDF text extraction
-│
-├── 📁 Json_Extraction/
-│   ├── skills_json.py              # Skill extraction from JSON
-│   └── proje_exp_ach_json.py       # Section-specific extraction
-│
-├── 📁 Improvements/
-│   └── ResumeImprovement.py        # Resume enhancement module
-│
-├── 📄 main.py                      # FastAPI application entry point
-├── 📄 requirements.txt             # Python dependencies
-├── 📄 parsed_resume.json           # Sample parsed resume output
-└── 📄 skill_embeddings.pt          # Cached skill embeddings
+## ⚙️ Tech Stack
 
-📦 Directory Overview
-Directory	Purpose	Key Files
-📁 Matching/	Core matching & scoring logic	SkillMatcher.py, semantic_skill_matcher.py, aggregate_score.py
-📁 Model/	AI model initialization	initialise_model.py
-📁 Parser/	Resume parsing utilities	ResumeParser.py, resume_text_extract.py
-📁 Json_Extraction/	JSON data extraction	skills_json.py, proje_exp_ach_json.py
-📁 Improvements/	Resume enhancement module	ResumeImprovement.py
-📄 Root Files	Application entry & dependencies	main.py, requirements.txt, skill_embeddings.pt
-🚀 Features
-1. Resume Parsing
+| Category | Tools & Libraries |
+|-----------|-------------------|
+| **Language** | Python 3.10+ |
+| **Backend** | FastAPI |
+| **NLP Models** | Sentence Transformers (e.g., `all-MiniLM-L6-v2`) |
+| **Data Handling** | pandas, numpy |
+| **Text Parsing** | PyPDF2, python-docx |
+| **Deployment** | Uvicorn, Docker (optional) |
 
-Extract structured data from PDF resumes
+---
 
-Parse profile info, education, work experience, projects, and achievements
+## 🧠 How It Works
 
-Handle malformed JSON with robust repair mechanisms
+1. **Upload Resume & Job Description**
+   - The API accepts both resume and job description as text or file input.
 
-2. Skill Matching & ATS Scoring
+2. **Skill Extraction**
+   - Extracts relevant skills using predefined and model-based skill lists.
 
-Semantic Matching: Uses Sentence Transformers for intelligent matching
+3. **Semantic Matching**
+   - Uses sentence embeddings to compute similarity between resume skills and job requirements.
 
-ATS Score: Percentage-based compatibility scoring
+4. **Aggregate ATS Score**
+   - Combines semantic and keyword scores to compute a final percentage score.
 
-Confidence Threshold: Configurable (default: 0.75)
+5. **AI-Generated Suggestions**
+   - Suggests new keywords, improvements, and missing skills for better alignment.
 
-3. Multi-Level Analysis
+---
 
-Direct and inferred skill matches
+## 🔌 API Endpoints
 
-Weighted scoring (70% job coverage, 30% resume breadth)
+| Method | Endpoint | Description |
+|---------|-----------|-------------|
+| `POST` | `/parse_resume/` | Extracts text from uploaded resume file |
+| `POST` | `/match_skills/` | Matches job and resume skills using semantic similarity |
+| `POST` | `/compute_score/` | Returns ATS score based on similarity results |
+| `POST` | `/suggest_improvements/` | Generates personalized improvement tips |
 
-4. Skill Inference
+Example request (JSON):
 
-Automatic expansion of related skills
+{
+  "resume_text": "Experienced data analyst skilled in Python, SQL, and Power BI.",
+  "job_description": "Looking for a data analyst with expertise in Python, SQL, and Tableau."
+}
+Example response:
+{
+  "ats_score": 87.5,
+  "matched_skills": ["Python", "SQL"],
+  "missing_skills": ["Tableau"],
+  "suggestions": ["Add Tableau to your skills section for better alignment."]
+}
 
-Domain-specific mappings (AI/ML, Web Dev, Data Science, etc.)
-
-Configurable inference toggle
-
-5. Resume Improvement
-
-AI-powered section-level improvements
-
-Context-aware feedback based on job roles
-
-Professional phrasing and formatting suggestions
-
-🛠️ Installation
-Prerequisites
-
-Python 3.8+
-
-Groq API key for LLM access
-
-# Clone the repository
-git clone https://github.com/yourusername/resume-ats-analyzer.git
-cd resume-ats-analyzer
-
-# Install dependencies
+🧪 Local Setup
+1️⃣ Clone Repository
+bash
+Copy code
+git clone https://github.com/<your-username>/ai-resume-analyzer.git
+cd ai-resume-analyzer
+2️⃣ Create Virtual Environment
+bash
+Copy code
+python -m venv venv
+source venv/bin/activate  # (Windows: venv\Scripts\activate)
+3️⃣ Install Dependencies
+bash
+Copy code
 pip install -r requirements.txt
+4️⃣ Run FastAPI Server
+bash
+Copy code
+uvicorn main:app --reload
+Server will run at:
+👉 http://127.0.0.1:8000
 
-# Run the application
-python main.py
+You can test endpoints here:
+👉 http://127.0.0.1:8000/docs
 
-📊 Output Metrics
-Metric	Description
-🧮 ATS Score	Overall compatibility percentage
-🎯 Match Percentage	Weighted skill coverage
-🧩 Matched Skills	Skill pairs with similarity scores
-⚠️ Unmatched Skills	Missing or mismatched skills
-🔍 Inferred Skills	Automatically expanded related skills
-📈 Confidence Levels	Individual match confidence
-🚨 Error Handling
+📈 Example Output
+sql
+Copy code
+Resume matched 83.6% of job description skills.
+✅ Strong Match: Python, SQL, Machine Learning  
+⚠️ Missing: Tableau, AWS  
+💡 Suggestion: Add Tableau projects to showcase data visualization experience.
+🧰 Future Enhancements
+Integration with LangChain or OpenAI API for advanced feedback.
 
-Handles the following gracefully:
+Support for multi-language resumes.
 
-Malformed PDF files
+Frontend dashboard with real-time visual scoring.
 
-Invalid JSON from LLM
+Exportable PDF summary reports for candidates.
 
-Network timeouts
+🧑‍💻 Author
+Ketan Gupta
+Data Science Enthusiast | Resume Intelligence Developer
 
-Missing required fields
+📧 Email: [your.email@example.com]
+🔗 GitHub: https://github.com/yourusername
 
-Embedding generation failures
-
-⚡ Performance
-
-Embedding Cache: Speeds up repeated skill comparisons
-
-Batch Processing: Efficient vector embedding
-
-Memory Efficient: GPU-optimized tensor operations
-
-Parallel Processing: Faster multi-skill comparisons
-
-🔮 Future Enhancements
-
-🌐 Multi-language support
-
-🧭 Industry-specific skill mappings
-
-🤝 Real-time collaboration
-
-📈 Advanced ATS optimization
-
-🔗 Job board integration
-
-🧾 Resume template generation
-
-🤝 Contributing
-
-Fork the repository
-
-Create a new feature branch
-
-Commit your changes
-
-Add tests (if applicable)
-
-Submit a Pull Request
-
-📄 License
-
-This project is licensed under the MIT License — see the LICENSE file for details.
-
-🆘 Support
-
-For support and inquiries:
-
-📘 Check the documentation
-
-🐞 Open an issue on GitHub
-
-💬 Contact the development team
+🪪 License
+This project is licensed under the MIT License — feel free to use, modify, and distribute it.
