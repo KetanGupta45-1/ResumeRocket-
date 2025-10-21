@@ -6,7 +6,7 @@ This project is an **AI-powered Resume Analyzer** that evaluates resumes against
 
 ## 🚀 Features
 
-- 📄 **Resume Parsing:** Automatically extracts text, skills, and experience from PDF or DOCX resumes.  
+- 📄 **Resume Parsing:** Automatically extracts text, skills, and experience from PDF resumes.  
 - 🧩 **Semantic Skill Matching:** Uses sentence embeddings to compare job requirements with candidate skills.  
 - 📊 **ATS Score Calculation:** Computes a weighted score based on keyword and semantic similarity.  
 - 💡 **AI-Based Suggestions:** Provides tailored recommendations to enhance resume relevance and ATS compatibility.  
@@ -16,6 +16,13 @@ This project is an **AI-powered Resume Analyzer** that evaluates resumes against
 ---
 
 ## 🧩 Project Structure
+<div align="center">
+
+![System Architecture](Screenshot%202025-10-21%20174021.png)
+
+*System Architecture Overview*
+
+</div>
 
 
 ---
